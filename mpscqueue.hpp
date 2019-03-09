@@ -12,6 +12,7 @@
 #define ZNL_MPSC_QUEUE_HPP_INCLUDED
 
 #include <atomic>
+#include <cstddef>
 #include <utility>
 
 #ifdef BOOST_HAS_PRAGMA_ONCE
@@ -30,19 +31,19 @@ namespace detail {
 class SLinkable
 {
 public:
-  SLinkable( const SLinkable& ) = delete;
-  SLinkable( SLinkable&& ) = delete;
-  SLinkable& operator=( const SLinkable& ) = delete;
-  SLinkable& operator=( SLinkable&& ) = delete;
+  SLinkable() = default; // can't be made protected
+  SLinkable( const SLinkable& ) : SLinkable() {} //= delete;
+  SLinkable( SLinkable&& ) : SLinkable() {} //= delete;
+  SLinkable& operator=( const SLinkable& ) {} //= delete;
+  SLinkable& operator=( SLinkable&& ) {} //= delete;
 protected:
-  SLinkable() = default;
   friend class MPSCIntrQueueBase;
-  const std::atomic<SLinkable*>& next() const { return _next; }
+  const std::atomic<const SLinkable*>* immutable_next() const { return &_next; }
 private:
   friend class MPSCQueueBase;
-  std::atomic<SLinkable*>& mutable_next() const { return _next; }
+  std::atomic<const SLinkable*>* mutable_next() const { return &_next; }
 private:
-  mutable std::atomic<SLinkable*> _next;
+  mutable std::atomic<const SLinkable*> _next;
 };
 
 template<typename T> class MPSCQueue;
@@ -52,26 +53,25 @@ class MPSCNode : public SLinkable
 {
 public:
   MPSCNode() = default;
-  explicit MPSCNode( const MPSCNode& node_ ) : _value( node_._value ) {}
-  explicit MPSCNode( MPSCNode&& node_ ) : _value( std::move( node_._value ) ) {}
+  MPSCNode( const MPSCNode& node_ ) : _value( node_._value ) {}
+  MPSCNode( MPSCNode&& node_ ) : _value( std::move( node_._value ) ) {}
   explicit MPSCNode( const T& value_ ) : _value( value_ ) {}
   explicit MPSCNode( T&& value_ ) : _value( std::move( value_ ) ) {}
-  void assign( const MPSCNode& node_ ) { _value = node_._value; }
-  void assign( MPSCNode&& node_ ) { _value = std::move( node_._value ); }
-  MPSCNode& operator=( const MPSCNode& node_ ) { assign( node_ ); return *this; }
-  MPSCNode& operator=( MPSCNode&& node_ ) { assign( node_ ); return *this; }
+  MPSCNode& operator=( const MPSCNode& node_ ) = default;
+  MPSCNode& operator=( MPSCNode&& node_ ) = default;
   void set_value( const T& value_ ) { _value = value_; }
   void set_value( T&& value_ ) { _value = std::move( value_ ); }
   const T& get_value() const { return _value; }
-  T& get_value() { return _value; }
-  //protected:
-  //T&& get_value() && { return std::move( _value ); }
-  //T&& get_move_value() & { return std::move( _value ); }
+
 private:
+  friend class MPSCQueueBase;
   friend class MPSCQueue<T>;
-  MPSCNode* load_next( std::memory_order order_ ) {
-    return static_cast<MPSCNode*>( SLinkable::next().load( order_ ) );
+  T& get_mutable_value() { return _value; }
+  T&& get_move_value() & { return std::move( _value ); }
+  const MPSCNode* load_next( std::memory_order order_ ) const {
+    return static_cast<const MPSCNode*>( SLinkable::immutable_next()->load( order_ ) );
   }
+
 private:
   T _value;
 };
@@ -79,20 +79,30 @@ private:
 class MPSCQueueBase
 {
 protected:
-  MPSCQueueBase( SLinkable& stub_ ) : _first( &stub_ ), _last( &stub_ ) {
-    stub_.mutable_next().store( nullptr, std::memory_order_relaxed );
+  MPSCQueueBase() = default;
+  MPSCQueueBase( const SLinkable& stub_ );
+  void init( const SLinkable& stub_ ) {
+    _first.store( &stub_, std::memory_order_relaxed );
+    _last.store( &stub_, std::memory_order_relaxed );
   }
-  void push( SLinkable& linkable_ ) {
-    linkable_.mutable_next().store( nullptr, std::memory_order_relaxed );
-    SLinkable* prev = _last.exchange( &linkable_, std::memory_order_acq_rel ); // may block
-    prev->mutable_next().store( &linkable_, std::memory_order_release );
+  void clear_next( const SLinkable& linkable_, std::memory_order order_ = std::memory_order_relaxed ) {
+    linkable_.mutable_next()->store( nullptr, order_);
   }
-  void store_first( SLinkable* linkable_, std::memory_order order_ ) { _first.store( linkable_, order_ ); }
-  SLinkable* load_first( std::memory_order order_ ) const { return _first.load( order_ ); }
-  SLinkable* load_last( std::memory_order order_ ) const { return _last.load( order_ ); }
+  const SLinkable* exchange_last( const SLinkable& linkable_, std::memory_order order_ = std::memory_order_acq_rel ) {
+    return _last.exchange( &linkable_, order_ ); // may block
+  }
+  void store_next( const SLinkable& prev_, const SLinkable& linkable_, std::memory_order order_ = std::memory_order_relaxed ) {
+    prev_.mutable_next()->store( &linkable_, order_);
+  }
+  void push( const SLinkable& linkable_ );
+  void store_first( const SLinkable* linkable_, std::memory_order order_ ) { _first.store( linkable_, order_ ); }
+  const SLinkable* load_first( std::memory_order order_ ) const { return _first.load( order_ ); }
+  const SLinkable* load_last( std::memory_order order_ ) const { return _last.load( order_ ); }
+  //TODO:
+  bool push_in_process() const { return false; }
 private:
-  std::atomic<SLinkable*> _last;
-  std::atomic<SLinkable*> _first;
+  std::atomic<const SLinkable*> _last;
+  std::atomic<const SLinkable*> _first;
 };
 
 // Intrusive queue
@@ -101,41 +111,18 @@ class MPSCIntrQueueBase : public MPSCQueueBase
 {
 protected:
   MPSCIntrQueueBase() : MPSCQueueBase( _stub ) {}
-  SLinkable* pop() {
-    SLinkable* first = load_first( std::memory_order_relaxed );
-    SLinkable* next = first->next().load( std::memory_order_acquire );
-    if( first == &_stub ) {
-      if( 0 == next ) {
-        return nullptr;
-      }
-      store_first( next, std::memory_order_acq_rel );
-      first = next;
-      next = first->next().load( std::memory_order_acq_rel );
-    }
-    if( next ) {
-      store_first( next, std::memory_order_acq_rel );
-      return first;
-    }
-    if( first == load_last( std::memory_order_acq_rel ) ) {
-      push( _stub );
-      if( ( next = first->next().load( std::memory_order_acq_rel ) ) ) {
-        store_first( next, std::memory_order_acq_rel );
-        return first;
-      }
-    }
-    return nullptr;
-  }
+  const SLinkable* pop();
 private:
   SLinkable _stub;
 };
 
-template<class Node>
+template<class T>
 class MPSCIntrQueue : public MPSCIntrQueueBase
 {
 public:
   MPSCIntrQueue() = default;
-  void push( Node& node_ ) { MPSCIntrQueueBase::push( node_ ); }
-  Node* pop() { return static_cast<Node*>( MPSCIntrQueueBase::pop() ); }
+  void push( const T& val_ ) { MPSCQueueBase::push( val_ ); }
+  const T* pop() { return static_cast<const T*>( MPSCIntrQueueBase::pop() ); }
 };
 
 // Non-intrusive queue
@@ -144,12 +131,12 @@ template<typename T>
 class MPSCQueue : public MPSCQueueBase
 {
 public:
-  MPSCQueue() : MPSCQueueBase( *( _stub = new MPSCNode<T>() ) ) {}
+  MPSCQueue() : _stub( new MPSCNode<T>() ) { MPSCQueueBase::init( *_stub ); }
   ~MPSCQueue() {
-    MPSCNode<T>* first = load_first( std::memory_order_relaxed );
+    MPSCNode<T>* first = const_cast<MPSCNode<T>*>( load_first( std::memory_order_relaxed ) );
     MPSCNode<T>* next;
     for( MPSCNode<T>* node = first; node; node = next ) {
-      next = node->load_next( std::memory_order_relaxed );
+      next = const_cast<MPSCNode<T>*>( node->load_next( std::memory_order_relaxed ) );
       delete node;
       if( next == first ) {
         break;
@@ -163,11 +150,11 @@ public:
     MPSCQueueBase::push( *new MPSCNode<T>( std::move( value_ ) ) );
   }
   bool pop( T& value_ ) {
-    MPSCNode<T>* first = load_first( std::memory_order_relaxed );
-    MPSCNode<T>* next = first->load_next( std::memory_order_acquire );
+    MPSCNode<T>* first = const_cast<MPSCNode<T>*>( load_first( std::memory_order_relaxed ) );
+    MPSCNode<T>* next = const_cast<MPSCNode<T>*>( first->load_next( std::memory_order_acquire ) );
     if( next ) {
       store_first( next, std::memory_order_relaxed );
-      assign_or_move( value_, next->get_value() );
+      assign_or_move( value_, next->get_mutable_value() );
       delete first;
       return true;
     }
@@ -175,25 +162,29 @@ public:
   }
   bool waiting_pop( T& value_ ) {
     do {
-      MPSCNode<T>* first = load_first( std::memory_order_relaxed );
-      MPSCNode<T>* next = first->load_next( std::memory_order_acquire );
+      MPSCNode<T>* first = const_cast<MPSCNode<T>*>( load_first( std::memory_order_relaxed ) );
+      MPSCNode<T>* next = const_cast<MPSCNode<T>*>( first->load_next( std::memory_order_acquire ) );
       if( next ) {
         store_first( next, std::memory_order_relaxed );
-        assign_or_move( value_, next->get_value() );
+        assign_or_move( value_, next->get_mutable_value() );
         delete first;
         return true;
       }
-    } while( false ); //TODO: is_valued()
+    } while( push_in_process() );
     return false;
   }
 private:
-  inline static void assign_or_move( T& to_, const T& from_ ) { to_ = from_; }
-  inline static bool is_valued( const T& val_ ) { return false; }
-  MPSCNode<T>* load_first( std::memory_order order_ ) {
-    return static_cast<MPSCNode<T>*>( MPSCQueueBase::load_first( order_ ) );
+  inline static void assign_value( T& to_, T& from_ ) { to_ = from_; }
+  inline static void move_value( T& to_, T& from_ ) { to_ = std::move( from_ ); }
+  inline static void swap_value( T& to_, T& from_ ) { std::swap( to_, from_ ); }
+  // override for particular T where more efficient:
+  inline static void assign_or_move( T& to_, T& from_ ) { move_value( to_, from_ ); }
+  const MPSCNode<T>* load_first( std::memory_order order_ ) const {
+    return static_cast<const MPSCNode<T>*>( MPSCQueueBase::load_first( order_ ) );
   }
+  //inline static bool is_valued( const T& val_ ) { return false; }
 private:
-  MPSCNode<T>*  _stub;
+  const MPSCNode<T>*  _stub;
 };
 
 } //namespace znl

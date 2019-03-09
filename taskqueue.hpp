@@ -40,13 +40,13 @@ public:
   Task( Func &&func_ )
     : MPSCNode<Func>( std::move( func_ ) ) {}
   Task& operator=( const Task &task_ ) { //= delete;
-    MPSCNode<Func>::assign( task_ );
+    set_value( task_.get_value() );
     return *this;
   }
-  Task& operator=( Task &&task_ ) {
-    MPSCNode<Func>::assign( std::move( task_ ) );
-    return *this;
-  }
+  //Task& operator=( Task &&task_ ) {
+  //  set_value( task_.get_move_value() );
+  //  return *this;
+  //}
   Task& operator=( const Func &func_ ) { //= delete;
     MPSCNode<Func>::set_value( func_ );
     return *this;
@@ -61,10 +61,11 @@ public:
 };
  
 template<> inline
-void MPSCQueue<Func>::assign_or_move( Func& to_, const Func& from_ ) { to_ = std::move( from_ ); }
+void MPSCQueue<Func>::assign_or_move( Func& to_, Func& from_ ) { move_value( to_, from_ ); }
 
 using FuncQueue = MPSCQueue<Func>;
-using TaskQueue = MPSCIntrQueue<Task>;
+using TaskQueue = MPSCIntrQueue<Task>; //TODO: get this to work
+//using TaskQueue = MPSCQueue<Task>;
 
 } //namespace znl
 

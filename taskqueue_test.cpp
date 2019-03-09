@@ -41,7 +41,7 @@ int main()
   task2copy = std::forward<Task>( task2 ); //reassignment test
   TaskQueue queue;
   queue.push( task1 );
-  Task *ptask = queue.pop();
+  const Task *ptask = queue.pop();
   if( ptask ) {
     ( *ptask )();
   }

@@ -64,7 +64,7 @@ void Worker::_run()
   DEBUG( "Worker " << name() << " _run()" );
   for( ;; ) {
     DEBUG( "Worker " << name() << " popping" );
-    Task& task = _pop();
+    const Task& task = _pop();
     DEBUG( "Worker " << name() << " popped" );
     if( &task == &_stop ) {
       DEBUG( "Worker " << name() << " stopping" );
@@ -76,7 +76,7 @@ void Worker::_run()
 }
 
 #ifdef ZNL_MULTIUSE_FUTURE
-void Worker::send( Task& task_ )
+void Worker::send( const Task& task_ )
 {
   _taskqueue.push( task_ );
   if( 0 == _count++ ) {
@@ -89,7 +89,7 @@ void Worker::send( Task& task_ )
 }
 
 #else //!ZNL_MULTIUSE_FUTURE
-void Worker::send( Task& task_ )
+void Worker::send( const Task& task_ )
 {
   _taskqueue.push( task_ );
   if( 0 == _count++ ) {
@@ -106,9 +106,9 @@ void Worker::send( Task& task_ )
 #endif
 
 #ifdef ZNL_MULTIUSE_FUTURE
-Task& Worker::_pop()
+const Task& Worker::_pop()
 {
-  Task *ptask;
+  const Task *ptask;
   int count = _count--; //TODO
   DEBUG( "Worker " << name() << count << " tasks queued" );
   while( ( ptask = _taskqueue.pop() ) == nullptr ) {
@@ -132,10 +132,10 @@ Task& Worker::_pop()
 }
 
 #else //!ZNL_MULTIUSE_FUTURE
-Task& Worker::_pop()
+const Task& Worker::_pop()
 {
   DEBUG( "Worker " << name() << " _pop()" );
-  Task *ptask;
+  const Task *ptask;
   int count = _count--; //TODO
   while( ( ptask = _taskqueue.pop() ) == nullptr ) {
     DEBUG( "Worker " << name() << " _pop() popped null task" );

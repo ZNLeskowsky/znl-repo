@@ -52,12 +52,12 @@ public:
   void send_stop() { send( _stop ); }
   void wait_until_stopped() { if( _thread.joinable() ) { _thread.join(); } }
   void stop() { send_stop(); wait_until_stopped(); }
-  void send( Task& task_ );
+  void send( const Task& task_ );
   void set_status( int status_ ) { _status = status_; }
   int get_status() const { return _status; }
 private:
   void _run();
-  Task& _pop();
+  const Task& _pop();
 protected:
   std::thread::native_handle_type native_handle() {
     return _thread.native_handle();

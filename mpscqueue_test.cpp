@@ -92,7 +92,7 @@ int main()
       if( pi ) {
         cout << static_cast<char>( pi->get_value() ); --i;
       } else {
-        cout << "null";
+        cout << "N|";
       }
     } while( i );
     cout << endl;
@@ -112,12 +112,19 @@ int main()
   }
   cout << "launched " << i << " threads" << endl;
   i = NITEM;
+  int inullcount = 0;
+  int inulli = 0;
   while( i > 0 ) {
     pi = iiqueue.pop();
     if( pi ) {
-       cout << static_cast<char>( pi->get_value() ); --i;
+      if (inulli) {
+        cout << " - " << inulli << " nulls - ";
+        inullcount += inulli;
+        inulli = 0;
+      }
+      cout << static_cast<char>( pi->get_value() ); --i;
     } else {
-       cout << "null";
+       ++inulli;
     }
   }
   cout << endl;
@@ -185,12 +192,19 @@ int main()
   }
   cout << "launched " << i << " threads" << endl;
   i = NITEM;
+  int ninullcount = 0;
+  int ninulli = 0;
   while( i > 0 ) {
     popped = iqueue.pop( ni );
     if( popped ) {
+      if (ninulli) {
+        cout << " - " << ninulli << " nulls - ";
+        ninullcount += ninulli;
+        ninulli = 0;
+      }
        cout << static_cast<char>( ni ); --i;
     } else {
-       cout << "null";
+       ++ninulli;
     }
   }
   cout << endl;
@@ -200,4 +214,6 @@ int main()
       _futures[i].wait();
   }
   cout << "awaited " << NTHR << " threads" << endl;
+  cout << "Intrusive null-count: " << inullcount << endl;
+  cout << "Non-intrusive null-count: " << ninullcount << endl;
 }
