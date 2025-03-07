@@ -1,0 +1,16 @@
+SRC=.
+OBJ=.
+CPPFLAGS=-std=c++11
+#CPPFLAGS=-std=c++11 -Wc++1z-extensions
+
+${OBJ}/zhad_test: ${OBJ}/zhad.o ${SRC}/zhad_test.cpp ${SRC}/zhad.h ${SRC}/zhad_function.h
+	c++ ${CPPFLAGS} -pthread ${OBJ}/zhad.o -o ${OBJ}/zhad_test ${SRC}/zhad_test.cpp
+
+${OBJ}/zhad.o: ${SRC}/zhad.cpp ${SRC}/zhad.h
+	c++ ${CPPFLAGS} -c ${SRC}/zhad.cpp -o ${OBJ}/zhad.o
+
+clean_zhad:
+	rm -f ${OBJ}/zhad*.o ${OBJ}/zhad_test
+
+clean: clean_zhad
+
